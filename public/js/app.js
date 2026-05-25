@@ -152,6 +152,9 @@ function renderSidebar() {
         { id: 'color-converter', icon: '🎨', name: 'Color Converter' },
         { id: 'link-shortener', icon: '🔗', name: 'Pemendek Link' },
         { id: 'lorem-ipsum', icon: '📜', name: 'Lorem Ipsum' },
+        { id: 'unit-converter', icon: '📐', name: 'Konversi Unit' },
+        { id: 'timestamp', icon: '🕐', name: 'Timestamp' },
+        { id: 'text-diff', icon: '🔍', name: 'Bandingkan Teks' },
         { id: 'history', icon: '📋', name: 'Riwayat' },
     ];
     
@@ -182,7 +185,7 @@ function renderSidebar() {
         </div>
         <div class="nav-section">
             <div class="nav-section-title">Developer Tools</div>
-            ${tools.slice(6, 14).map(t => `
+            ${tools.slice(6, 17).map(t => `
                 <div class="nav-item ${state.currentPage === t.id ? 'active' : ''}" onclick="navigate('${t.id}')">
                     <span class="icon">${t.icon}</span>${t.name}
                 </div>
@@ -190,7 +193,7 @@ function renderSidebar() {
         </div>
         <div class="nav-section">
             <div class="nav-section-title">Lainnya</div>
-            ${tools.slice(14).map(t => `
+            ${tools.slice(17).map(t => `
                 <div class="nav-item ${state.currentPage === t.id ? 'active' : ''}" onclick="navigate('${t.id}')">
                     <span class="icon">${t.icon}</span>${t.name}
                 </div>
@@ -294,10 +297,24 @@ function renderBlockBlast() {
     return `
     <div class="page-header">
         <h1>🧩 Block Blast Solver AI</h1>
-        <p>Klik cell untuk mengisi board, pilih pieces, lalu klik Solve!</p>
+        <p>Upload screenshot atau klik cell manual, pilih pieces, lalu Solve!</p>
     </div>
     
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px; align-items:start;">
+    <!-- Upload Section -->
+    <div class="card" style="margin-bottom:16px;">
+        <h3 style="margin-bottom:12px;">📸 Upload Screenshot (Opsional)</h3>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Upload screenshot Block Blast dari HP kamu, AI akan otomatis deteksi board.</p>
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+            <label class="btn btn-secondary" style="cursor:pointer;">
+                📷 Pilih Gambar
+                <input type="file" id="bb-image-input" accept="image/*" onchange="analyzeBlockBlastImage(event)" style="display:none;">
+            </label>
+            <span id="bb-upload-status" style="font-size:12px; color:var(--text-muted);"></span>
+        </div>
+        <div id="bb-image-preview" style="margin-top:12px;"></div>
+    </div>
+    
+    <div class="bb-layout" style="display:grid; grid-template-columns: 1fr 1fr; gap:24px; align-items:start;">
         <div class="card">
             <h3 style="margin-bottom:12px;">Board 8x8</h3>
             <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">Klik cell untuk toggle filled/empty</p>
@@ -608,6 +625,94 @@ function renderLoremIpsum() {
     </div>`;
 }
 
+function renderUnitConverter() {
+    return `
+    <div class="page-header">
+        <h1>📐 Konversi Unit</h1>
+        <p>Konversi berbagai satuan ukuran dengan mudah</p>
+    </div>
+    <div class="card" style="max-width:600px;">
+        <div class="form-group">
+            <label>Kategori</label>
+            <select class="form-input" id="uc-category" onchange="updateUnitOptions()">
+                <option value="length">Panjang</option>
+                <option value="weight">Berat</option>
+                <option value="temperature">Suhu</option>
+                <option value="data">Data Digital</option>
+                <option value="time">Waktu</option>
+            </select>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:12px; align-items:end;">
+            <div class="form-group" style="margin:0;">
+                <label>Dari</label>
+                <input type="number" class="form-input" id="uc-value" value="1" step="any">
+            </div>
+            <div style="padding-bottom:12px; font-size:20px; color:var(--text-muted);">→</div>
+            <div class="form-group" style="margin:0;">
+                <label>Hasil</label>
+                <div id="uc-result" style="font-size:20px; font-weight:700; color:var(--primary-light); min-height:40px; display:flex; align-items:center;">-</div>
+            </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px;">
+            <select class="form-input" id="uc-from"></select>
+            <select class="form-input" id="uc-to"></select>
+        </div>
+        <button class="btn btn-primary" style="margin-top:16px;" onclick="convertUnit()">📐 Konversi</button>
+    </div>`;
+}
+
+function renderTimestamp() {
+    return `
+    <div class="page-header">
+        <h1>🕐 Timestamp Converter</h1>
+        <p>Konversi antara Unix timestamp dan tanggal</p>
+    </div>
+    <div class="card" style="max-width:600px;">
+        <button class="btn btn-primary" onclick="getTimestampNow()" style="margin-bottom:16px;">🕐 Timestamp Sekarang</button>
+        <div id="ts-now-result"></div>
+        
+        <div style="margin-top:24px; padding-top:16px; border-top:1px solid var(--border);">
+            <h3 style="font-size:15px; margin-bottom:12px;">Timestamp → Tanggal</h3>
+            <div style="display:flex; gap:8px;">
+                <input type="number" class="form-input" id="ts-input" placeholder="Contoh: 1700000000">
+                <button class="btn btn-secondary" onclick="timestampToDate()">Konversi</button>
+            </div>
+            <div id="ts-to-date-result" style="margin-top:8px;"></div>
+        </div>
+        
+        <div style="margin-top:24px; padding-top:16px; border-top:1px solid var(--border);">
+            <h3 style="font-size:15px; margin-bottom:12px;">Tanggal → Timestamp</h3>
+            <div style="display:flex; gap:8px;">
+                <input type="datetime-local" class="form-input" id="ts-date-input">
+                <button class="btn btn-secondary" onclick="dateToTimestamp()">Konversi</button>
+            </div>
+            <div id="ts-to-ts-result" style="margin-top:8px;"></div>
+        </div>
+    </div>`;
+}
+
+function renderTextDiff() {
+    return `
+    <div class="page-header">
+        <h1>🔍 Bandingkan Teks</h1>
+        <p>Temukan perbedaan antara dua teks</p>
+    </div>
+    <div class="card">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <div>
+                <label style="font-size:13px; color:var(--text-secondary); margin-bottom:6px; display:block;">Teks Asli</label>
+                <textarea id="diff-text1" placeholder="Masukkan teks pertama..." style="min-height:200px;"></textarea>
+            </div>
+            <div>
+                <label style="font-size:13px; color:var(--text-secondary); margin-bottom:6px; display:block;">Teks Baru</label>
+                <textarea id="diff-text2" placeholder="Masukkan teks kedua..." style="min-height:200px;"></textarea>
+            </div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:16px;" onclick="compareTexts()">🔍 Bandingkan</button>
+        <div id="diff-result" style="margin-top:16px;"></div>
+    </div>`;
+}
+
 function renderHistory() {
     return `
     <div class="page-header">
@@ -639,6 +744,9 @@ function getPageContent() {
         case 'color-converter': return renderColorConverter();
         case 'link-shortener': return renderLinkShortener();
         case 'lorem-ipsum': return renderLoremIpsum();
+        case 'unit-converter': return renderUnitConverter();
+        case 'timestamp': return renderTimestamp();
+        case 'text-diff': return renderTextDiff();
         case 'history': return renderHistory();
         default: return renderDashboard();
     }
@@ -667,6 +775,7 @@ function render() {
     if (state.currentPage === 'notes') loadNotes();
     if (state.currentPage === 'todos') loadTodos();
     if (state.currentPage === 'link-shortener') loadLinks();
+    if (state.currentPage === 'unit-converter') setTimeout(updateUnitOptions, 50);
 }
 
 // ============ BLOCK BLAST LOGIC ============
@@ -771,6 +880,53 @@ function highlightMoves(moves) {
             }
         });
     });
+}
+
+// Image Upload & Analysis
+async function analyzeBlockBlastImage(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const statusEl = document.getElementById('bb-upload-status');
+    const previewEl = document.getElementById('bb-image-preview');
+    
+    statusEl.textContent = 'Menganalisis gambar...';
+    statusEl.style.color = 'var(--accent)';
+    
+    // Show preview
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        const dataUrl = e.target.result;
+        
+        previewEl.innerHTML = `
+            <img src="${dataUrl}" style="max-width:200px; max-height:150px; border-radius:8px; border:1px solid var(--border);">
+        `;
+        
+        // Send to API
+        showLoading();
+        const res = await api('/api/tools/block-blast-analyze', { image: dataUrl });
+        hideLoading();
+        
+        if (res.success) {
+            // Update board state
+            state.board = res.board;
+            if (res.pieces && res.pieces.length > 0) {
+                state.selectedPieces = res.pieces;
+            }
+            
+            statusEl.innerHTML = `<span style="color:var(--success);">✅ Board terdeteksi! ${res.filled_count} cell terisi, ${res.empty_count} kosong.</span>`;
+            if (res.note) {
+                statusEl.innerHTML += `<br><span style="font-size:11px; color:var(--text-muted);">${res.note}</span>`;
+            }
+            
+            toast('Screenshot berhasil dianalisis!', 'success');
+            render();
+        } else {
+            statusEl.innerHTML = `<span style="color:var(--danger);">❌ ${res.message}</span>`;
+            toast('Gagal analisis gambar', 'error');
+        }
+    };
+    reader.readAsDataURL(file);
 }
 
 
@@ -1091,6 +1247,98 @@ async function loadHistory() {
         </div>`;
         
         el.innerHTML = html;
+    }
+}
+
+// Unit Converter
+function updateUnitOptions() {
+    const cat = document.getElementById('uc-category').value;
+    const units = {
+        length: ['mm', 'cm', 'm', 'km', 'inch', 'feet', 'yard', 'mile'],
+        weight: ['mg', 'g', 'kg', 'ton', 'oz', 'lb'],
+        temperature: ['C', 'F', 'K'],
+        data: ['bit', 'byte', 'KB', 'MB', 'GB', 'TB'],
+        time: ['ms', 'detik', 'menit', 'jam', 'hari', 'minggu', 'bulan', 'tahun']
+    };
+    const opts = (units[cat] || []).map(u => `<option value="${u}">${u}</option>`).join('');
+    document.getElementById('uc-from').innerHTML = opts;
+    document.getElementById('uc-to').innerHTML = opts;
+    // Set different default for 'to'
+    const toEl = document.getElementById('uc-to');
+    if (toEl.options.length > 1) toEl.selectedIndex = 1;
+}
+async function convertUnit() {
+    const value = document.getElementById('uc-value').value;
+    const from = document.getElementById('uc-from').value;
+    const to = document.getElementById('uc-to').value;
+    const category = document.getElementById('uc-category').value;
+    
+    const res = await api('/api/tools/unit-converter', { value: parseFloat(value), from, to, category });
+    if (res.success) {
+        document.getElementById('uc-result').textContent = res.result + ' ' + to;
+        toast(res.formatted, 'success');
+    } else {
+        toast(res.message, 'error');
+    }
+}
+
+// Timestamp
+async function getTimestampNow() {
+    const res = await api('/api/tools/timestamp', { mode: 'now' });
+    if (res.success) {
+        document.getElementById('ts-now-result').innerHTML = `
+            <div class="result-box" style="display:block;">
+                <b>Unix Timestamp:</b> ${res.timestamp}\n<b>ISO:</b> ${res.iso}\n<b>Tanggal:</b> ${res.readable}\n<b>Date:</b> ${res.date}\n<b>Time:</b> ${res.time}
+            </div>
+        `;
+    }
+}
+async function timestampToDate() {
+    const ts = document.getElementById('ts-input').value;
+    if (!ts) return;
+    const res = await api('/api/tools/timestamp', { mode: 'to_date', timestamp: ts });
+    if (res.success) {
+        document.getElementById('ts-to-date-result').innerHTML = `<div class="result-box" style="display:block;">${res.readable}</div>`;
+    } else {
+        toast(res.message, 'error');
+    }
+}
+async function dateToTimestamp() {
+    const date = document.getElementById('ts-date-input').value;
+    if (!date) return;
+    const res = await api('/api/tools/timestamp', { mode: 'to_timestamp', date });
+    if (res.success) {
+        document.getElementById('ts-to-ts-result').innerHTML = `<div class="result-box" style="display:block;">Unix Timestamp: <b>${res.timestamp}</b></div>`;
+    } else {
+        toast(res.message, 'error');
+    }
+}
+
+// Text Diff
+async function compareTexts() {
+    const text1 = document.getElementById('diff-text1').value;
+    const text2 = document.getElementById('diff-text2').value;
+    if (!text1 && !text2) { toast('Masukkan teks!', 'warning'); return; }
+    
+    showLoading();
+    const res = await api('/api/tools/text-diff', { text1, text2 });
+    hideLoading();
+    
+    if (res.success) {
+        let html = `<div style="margin-bottom:12px; display:flex; gap:16px; font-size:13px;">
+            <span style="color:var(--text-muted);">Sama: ${res.stats.same}</span>
+            <span style="color:var(--success);">+ Ditambah: ${res.stats.added}</span>
+            <span style="color:var(--danger);">- Dihapus: ${res.stats.removed}</span>
+        </div>`;
+        html += '<div style="background:var(--bg-dark); border-radius:8px; padding:12px; font-family:monospace; font-size:12px; max-height:400px; overflow-y:auto;">';
+        res.diff.forEach(d => {
+            const color = d.type === 'added' ? 'var(--success)' : d.type === 'removed' ? 'var(--danger)' : 'var(--text-muted)';
+            const prefix = d.type === 'added' ? '+' : d.type === 'removed' ? '-' : ' ';
+            html += `<div style="color:${color}; padding:2px 0;">${prefix} ${d.content || '(kosong)'}</div>`;
+        });
+        html += '</div>';
+        document.getElementById('diff-result').innerHTML = html;
+        toast('Perbandingan selesai!', 'success');
     }
 }
 

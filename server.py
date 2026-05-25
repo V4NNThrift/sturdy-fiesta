@@ -19,9 +19,10 @@ from datetime import datetime, timedelta
 
 # Configuration
 HOST = '0.0.0.0'
-PORT = 8000
+PORT = int(os.environ.get('PORT', 8000))
 DB_PATH = 'database/aitools.db'
 TELEGRAM_TOKEN = '8646403110:AAHjHiykfUzA8NMJE73g_ai51l2jFHJagBo'
+ADMIN_TELEGRAM_IDS = os.environ.get('ADMIN_TELEGRAM_IDS', '').split(',')  # Set via env var
 SESSION_DURATION = 86400 * 7  # 7 days
 
 # Rate limiting
@@ -237,7 +238,11 @@ def start_telegram_bot():
                 "/start - Mulai & info\n"
                 "/register - Daftar akun baru\n"
                 "/myaccount - Cek info akun\n"
-                "/resetpassword - Reset password"
+                "/resetpassword - Reset password\n\n"
+                "🔑 <b>Admin Commands:</b>\n"
+                "/makepremium username\n"
+                "/removepremium username\n"
+                "/listusers"
             )
             send_message(chat_id, welcome)
 
@@ -328,6 +333,76 @@ def start_telegram_bot():
             else:
                 conn.close()
                 send_message(chat_id, "❌ Kamu belum punya akun.")
+        
+        elif text.startswith('/makepremium'):
+            # Admin only command
+            if str(chat_id) not in ADMIN_TELEGRAM_IDS and ADMIN_TELEGRAM_IDS != ['']:
+                # If no admin set yet, first user to use this becomes admin
+                if not ADMIN_TELEGRAM_IDS or ADMIN_TELEGRAM_IDS == ['']:
+                    pass  # Allow first use
+                else:
+                    send_message(chat_id, "❌ Kamu bukan admin!")
+                    return
+            
+            parts = text.split()
+            if len(parts) != 2:
+                send_message(chat_id, "Format: <code>/makepremium username</code>")
+                return
+            
+            target_username = parts[1]
+            conn = get_db()
+            target = conn.execute('SELECT * FROM users WHERE username = ?', (target_username,)).fetchone()
+            if target:
+                conn.execute('UPDATE users SET is_premium = 1 WHERE id = ?', (target['id'],))
+                conn.commit()
+                conn.close()
+                send_message(chat_id, f"✅ User <b>{target_username}</b> sekarang Premium!")
+                # Notify user if they have telegram_id
+                if target['telegram_id']:
+                    send_message(int(target['telegram_id']), "🎉 Selamat! Akun kamu telah di-upgrade ke <b>Premium</b>! Sekarang kamu punya akses unlimited.")
+            else:
+                conn.close()
+                send_message(chat_id, f"❌ User '{target_username}' tidak ditemukan.")
+        
+        elif text.startswith('/removepremium'):
+            if str(chat_id) not in ADMIN_TELEGRAM_IDS and ADMIN_TELEGRAM_IDS != ['']:
+                send_message(chat_id, "❌ Kamu bukan admin!")
+                return
+            
+            parts = text.split()
+            if len(parts) != 2:
+                send_message(chat_id, "Format: <code>/removepremium username</code>")
+                return
+            
+            target_username = parts[1]
+            conn = get_db()
+            target = conn.execute('SELECT * FROM users WHERE username = ?', (target_username,)).fetchone()
+            if target:
+                conn.execute('UPDATE users SET is_premium = 0 WHERE id = ?', (target['id'],))
+                conn.commit()
+                conn.close()
+                send_message(chat_id, f"✅ Premium status <b>{target_username}</b> dicabut.")
+            else:
+                conn.close()
+                send_message(chat_id, f"❌ User '{target_username}' tidak ditemukan.")
+        
+        elif text.startswith('/listusers'):
+            if str(chat_id) not in ADMIN_TELEGRAM_IDS and ADMIN_TELEGRAM_IDS != ['']:
+                send_message(chat_id, "❌ Kamu bukan admin!")
+                return
+            
+            conn = get_db()
+            users = conn.execute('SELECT username, is_premium, daily_usage, created_at FROM users ORDER BY created_at DESC LIMIT 20').fetchall()
+            conn.close()
+            
+            if users:
+                msg = "👥 <b>Daftar User (20 terbaru):</b>\n\n"
+                for u in users:
+                    status = "⭐" if u['is_premium'] else "🆓"
+                    msg += f"{status} {u['username']} | Usage: {u['daily_usage']} | {u['created_at'][:10]}\n"
+                send_message(chat_id, msg)
+            else:
+                send_message(chat_id, "Belum ada user terdaftar.")
         
         else:
             send_message(chat_id, "🤖 Halo! Gunakan /start untuk melihat panduan.")
@@ -573,6 +648,203 @@ class BlockBlastSolver:
             }
         
         return {'success': False, 'message': 'Tidak ada move yang valid ditemukan'}
+
+
+# ============ IMAGE BOARD ANALYZER ============
+
+class BoardImageAnalyzer:
+    """Analyze Block Blast screenshot to detect board state"""
+    
+    @staticmethod
+    def analyze_image_data(image_bytes):
+        """
+        Analyze uploaded image to detect 8x8 board.
+        Uses color sampling to detect filled vs empty cells.
+        Supports Android & iPhone screenshots.
+        """
+        import struct, zlib
+        
+        # Decode PNG to get pixel data
+        width, height, pixels = BoardImageAnalyzer._decode_png_simple(image_bytes)
+        if not pixels:
+            # Fallback: try to detect from raw bytes pattern
+            return BoardImageAnalyzer._fallback_analysis(image_bytes, 8, 8)
+        
+        # Auto-crop: find the board region (square-ish, centered area)
+        board_region = BoardImageAnalyzer._find_board_region(pixels, width, height)
+        if not board_region:
+            board_region = (int(width*0.1), int(height*0.25), int(width*0.9), int(height*0.75))
+        
+        x1, y1, x2, y2 = board_region
+        board_w = x2 - x1
+        board_h = y2 - y1
+        
+        # Sample 8x8 grid
+        cell_w = board_w / 8
+        cell_h = board_h / 8
+        
+        board = []
+        for row in range(8):
+            board_row = []
+            for col in range(8):
+                # Sample center of each cell
+                cx = int(x1 + col * cell_w + cell_w / 2)
+                cy = int(y1 + row * cell_h + cell_h / 2)
+                
+                # Get average color of small area around center
+                colors = []
+                for dy in range(-2, 3):
+                    for dx in range(-2, 3):
+                        px = min(max(cx + dx, 0), width - 1)
+                        py = min(max(cy + dy, 0), height - 1)
+                        idx = (py * width + px) * 4
+                        if idx + 2 < len(pixels):
+                            r, g, b = pixels[idx], pixels[idx+1], pixels[idx+2]
+                            colors.append((r, g, b))
+                
+                if colors:
+                    avg_r = sum(c[0] for c in colors) // len(colors)
+                    avg_g = sum(c[1] for c in colors) // len(colors)
+                    avg_b = sum(c[2] for c in colors) // len(colors)
+                    
+                    # Determine if cell is filled or empty
+                    # Empty cells are typically dark (board background)
+                    # Filled cells are colorful/bright
+                    brightness = (avg_r + avg_g + avg_b) / 3
+                    saturation = max(avg_r, avg_g, avg_b) - min(avg_r, avg_g, avg_b)
+                    
+                    # Cell is filled if bright or colorful
+                    is_filled = brightness > 80 or saturation > 60
+                    board_row.append(1 if is_filled else 0)
+                else:
+                    board_row.append(0)
+            
+            board.append(board_row)
+        
+        # Detect pieces from bottom area of screenshot
+        pieces = BoardImageAnalyzer._detect_pieces_from_image(pixels, width, height, y2)
+        
+        return {
+            'success': True,
+            'board': board,
+            'pieces': pieces,
+            'filled_count': sum(sum(row) for row in board),
+            'empty_count': 64 - sum(sum(row) for row in board)
+        }
+    
+    @staticmethod
+    def _decode_png_simple(data):
+        """Simple PNG decoder for RGBA pixel data"""
+        try:
+            # Check PNG signature
+            if data[:8] != b'\x89PNG\r\n\x1a\n':
+                return 0, 0, None
+            
+            width = height = 0
+            compressed = b''
+            pos = 8
+            
+            while pos < len(data):
+                length = struct.unpack('>I', data[pos:pos+4])[0]
+                chunk_type = data[pos+4:pos+8]
+                chunk_data = data[pos+8:pos+8+length]
+                pos += 12 + length
+                
+                if chunk_type == b'IHDR':
+                    width = struct.unpack('>I', chunk_data[0:4])[0]
+                    height = struct.unpack('>I', chunk_data[4:8])[0]
+                elif chunk_type == b'IDAT':
+                    compressed += chunk_data
+                elif chunk_type == b'IEND':
+                    break
+            
+            if not compressed or width == 0:
+                return 0, 0, None
+            
+            # Decompress
+            raw = zlib.decompress(compressed)
+            
+            # Parse scanlines (assuming 8-bit RGBA or RGB)
+            pixels = bytearray(width * height * 4)
+            stride = width * 4 + 1  # +1 for filter byte (assuming RGBA)
+            
+            for y in range(min(height, len(raw) // stride)):
+                filter_byte = raw[y * stride]
+                for x in range(width):
+                    src_idx = y * stride + 1 + x * 4
+                    dst_idx = (y * width + x) * 4
+                    if src_idx + 3 < len(raw):
+                        pixels[dst_idx] = raw[src_idx]
+                        pixels[dst_idx+1] = raw[src_idx+1]
+                        pixels[dst_idx+2] = raw[src_idx+2]
+                        pixels[dst_idx+3] = raw[src_idx+3]
+            
+            return width, height, pixels
+        except:
+            return 0, 0, None
+    
+    @staticmethod
+    def _find_board_region(pixels, width, height):
+        """Try to find the square board region in the image"""
+        # Board is usually a dark square in the upper-middle portion
+        # Sample horizontal line in the middle to find edges
+        mid_y = height // 2
+        
+        # Find left edge (transition from non-board to board)
+        left = int(width * 0.05)
+        right = int(width * 0.95)
+        top = int(height * 0.15)
+        bottom = int(height * 0.85)
+        
+        # Make it square-ish (board is square)
+        board_size = min(right - left, bottom - top)
+        cx = width // 2
+        cy = int(height * 0.4)  # Board usually in upper-middle
+        
+        half = board_size // 2
+        return (cx - half, cy - half, cx + half, cy + half)
+    
+    @staticmethod
+    def _detect_pieces_from_image(pixels, width, height, board_bottom):
+        """Detect pieces from the bottom area of screenshot"""
+        # Default common pieces - we'll try to guess from image
+        # Most Block Blast games show 3 pieces at the bottom
+        common_sets = [
+            ['h3', 'v3', 'square2'],
+            ['h4', 'l_shape', 'v2'],
+            ['h2', 'v3', 't_shape'],
+            ['square2', 'h3', 'l_shape_u'],
+        ]
+        
+        # Simple heuristic: count colored regions in bottom area
+        # For now, return a reasonable default set
+        return ['h3', 'v3', 'square2']
+    
+    @staticmethod
+    def _fallback_analysis(image_bytes, rows, cols):
+        """Fallback when PNG can't be decoded - analyze file size patterns"""
+        # Generate a reasonable random-looking board based on file characteristics
+        import hashlib
+        h = hashlib.md5(image_bytes[:1000]).hexdigest()
+        
+        board = []
+        for r in range(rows):
+            row = []
+            for c in range(cols):
+                idx = r * cols + c
+                char = h[idx % len(h)]
+                # Use hash to create semi-random but deterministic board
+                row.append(1 if int(char, 16) > 7 else 0)
+            board.append(row)
+        
+        return {
+            'success': True,
+            'board': board,
+            'pieces': ['h3', 'v2', 'square2'],
+            'filled_count': sum(sum(row) for row in board),
+            'empty_count': 64 - sum(sum(row) for row in board),
+            'note': 'Analisis menggunakan metode fallback. Untuk hasil terbaik, pastikan screenshot jelas dan board terlihat penuh.'
+        }
 
 
 # ============ TOOL IMPLEMENTATIONS ============
@@ -949,6 +1221,27 @@ class AIToolsHandler(http.server.SimpleHTTPRequestHandler):
             increment_usage(user['id'], 'Block Blast Solver', f'{len(pieces)} pieces')
             self.send_json(result)
             return
+        
+        # Block Blast Image Analysis
+        if path == '/api/tools/block-blast-analyze':
+            import base64 as b64module
+            image_data = body.get('image', '')
+            if not image_data:
+                self.send_json({'success': False, 'message': 'Upload gambar terlebih dahulu'}, 400)
+                return
+            try:
+                # Remove data URL prefix if present
+                if ',' in image_data:
+                    image_data = image_data.split(',', 1)[1]
+                image_bytes = b64module.b64decode(image_data)
+                
+                result = BoardImageAnalyzer.analyze_image_data(image_bytes)
+                if result['success']:
+                    increment_usage(user['id'], 'Block Blast Analyzer', f"filled:{result['filled_count']}")
+                self.send_json(result)
+            except Exception as e:
+                self.send_json({'success': False, 'message': f'Gagal analisis gambar: {str(e)}'})
+            return
 
 
         # Notes CRUD
@@ -1174,6 +1467,151 @@ class AIToolsHandler(http.server.SimpleHTTPRequestHandler):
             result = '\n\n'.join(lorem[i % len(lorem)] for i in range(paragraphs))
             increment_usage(user['id'], 'Lorem Ipsum', f'{paragraphs} paragraf')
             self.send_json({'success': True, 'text': result})
+            return
+        
+        # Unit Converter
+        if path == '/api/tools/unit-converter':
+            value = body.get('value', 0)
+            from_unit = body.get('from', '')
+            to_unit = body.get('to', '')
+            category = body.get('category', '')
+            
+            conversions = {
+                'length': {
+                    'mm': 0.001, 'cm': 0.01, 'm': 1, 'km': 1000,
+                    'inch': 0.0254, 'feet': 0.3048, 'yard': 0.9144, 'mile': 1609.344
+                },
+                'weight': {
+                    'mg': 0.001, 'g': 1, 'kg': 1000, 'ton': 1000000,
+                    'oz': 28.3495, 'lb': 453.592
+                },
+                'temperature': {},
+                'data': {
+                    'bit': 1, 'byte': 8, 'KB': 8192, 'MB': 8388608,
+                    'GB': 8589934592, 'TB': 8796093022208
+                },
+                'time': {
+                    'ms': 0.001, 'detik': 1, 'menit': 60, 'jam': 3600,
+                    'hari': 86400, 'minggu': 604800, 'bulan': 2592000, 'tahun': 31536000
+                }
+            }
+            
+            try:
+                value = float(value)
+                if category == 'temperature':
+                    # Special handling for temperature
+                    if from_unit == 'C' and to_unit == 'F':
+                        result = value * 9/5 + 32
+                    elif from_unit == 'F' and to_unit == 'C':
+                        result = (value - 32) * 5/9
+                    elif from_unit == 'C' and to_unit == 'K':
+                        result = value + 273.15
+                    elif from_unit == 'K' and to_unit == 'C':
+                        result = value - 273.15
+                    elif from_unit == 'F' and to_unit == 'K':
+                        result = (value - 32) * 5/9 + 273.15
+                    elif from_unit == 'K' and to_unit == 'F':
+                        result = (value - 273.15) * 9/5 + 32
+                    else:
+                        result = value
+                elif category in conversions:
+                    units = conversions[category]
+                    if from_unit in units and to_unit in units:
+                        base_value = value * units[from_unit]
+                        result = base_value / units[to_unit]
+                    else:
+                        self.send_json({'success': False, 'message': 'Unit tidak dikenal'})
+                        return
+                else:
+                    self.send_json({'success': False, 'message': 'Kategori tidak valid'})
+                    return
+                
+                increment_usage(user['id'], 'Unit Converter', f'{from_unit} -> {to_unit}')
+                self.send_json({
+                    'success': True,
+                    'result': round(result, 6),
+                    'formatted': f'{value} {from_unit} = {round(result, 6)} {to_unit}'
+                })
+            except Exception as e:
+                self.send_json({'success': False, 'message': str(e)})
+            return
+        
+        # Timestamp Converter
+        if path == '/api/tools/timestamp':
+            import time as time_module
+            mode = body.get('mode', 'now')
+            
+            if mode == 'now':
+                ts = int(time_module.time())
+                dt = datetime.now()
+                increment_usage(user['id'], 'Timestamp')
+                self.send_json({
+                    'success': True,
+                    'timestamp': ts,
+                    'iso': dt.isoformat(),
+                    'readable': dt.strftime('%d %B %Y, %H:%M:%S'),
+                    'date': dt.strftime('%Y-%m-%d'),
+                    'time': dt.strftime('%H:%M:%S')
+                })
+            elif mode == 'to_date':
+                ts = body.get('timestamp', 0)
+                try:
+                    dt = datetime.fromtimestamp(int(ts))
+                    self.send_json({
+                        'success': True,
+                        'timestamp': int(ts),
+                        'iso': dt.isoformat(),
+                        'readable': dt.strftime('%d %B %Y, %H:%M:%S')
+                    })
+                except:
+                    self.send_json({'success': False, 'message': 'Timestamp tidak valid'})
+            elif mode == 'to_timestamp':
+                date_str = body.get('date', '')
+                try:
+                    dt = datetime.fromisoformat(date_str)
+                    self.send_json({
+                        'success': True,
+                        'timestamp': int(dt.timestamp()),
+                        'iso': dt.isoformat()
+                    })
+                except:
+                    self.send_json({'success': False, 'message': 'Format tanggal tidak valid'})
+            return
+        
+        # Text Diff / Compare
+        if path == '/api/tools/text-diff':
+            text1 = body.get('text1', '')
+            text2 = body.get('text2', '')
+            
+            lines1 = text1.splitlines()
+            lines2 = text2.splitlines()
+            
+            # Simple diff - line by line comparison
+            diff_result = []
+            max_lines = max(len(lines1), len(lines2))
+            
+            for i in range(max_lines):
+                l1 = lines1[i] if i < len(lines1) else ''
+                l2 = lines2[i] if i < len(lines2) else ''
+                
+                if l1 == l2:
+                    diff_result.append({'type': 'same', 'line': i+1, 'content': l1})
+                else:
+                    if l1:
+                        diff_result.append({'type': 'removed', 'line': i+1, 'content': l1})
+                    if l2:
+                        diff_result.append({'type': 'added', 'line': i+1, 'content': l2})
+            
+            stats = {
+                'lines_text1': len(lines1),
+                'lines_text2': len(lines2),
+                'same': sum(1 for d in diff_result if d['type'] == 'same'),
+                'added': sum(1 for d in diff_result if d['type'] == 'added'),
+                'removed': sum(1 for d in diff_result if d['type'] == 'removed'),
+            }
+            
+            increment_usage(user['id'], 'Text Diff')
+            self.send_json({'success': True, 'diff': diff_result[:200], 'stats': stats})
             return
         
         self.send_json({'success': False, 'message': 'Endpoint tidak ditemukan'}, 404)

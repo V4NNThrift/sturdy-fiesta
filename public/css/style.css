@@ -607,9 +607,29 @@ textarea:focus {
     .mobile-toggle { display: flex; }
     .sidebar { transform: translateX(-100%); }
     .sidebar.open { transform: translateX(0); }
-    .main-content { margin-left: 0; padding: 16px; padding-top: 60px; }
+    .main-content { margin-left: 0; padding: 12px; padding-top: 60px; }
     .card-grid { grid-template-columns: 1fr; }
     .bb-board { max-width: 100%; }
+    .bb-layout { grid-template-columns: 1fr !important; }
+    .bb-board { max-width: 320px; margin: 0 auto; }
+    .bb-cell { border-radius: 3px; }
+    .pieces-grid { gap: 8px; }
+    .piece-option { padding: 6px 10px; font-size: 11px; }
+    .page-header h1 { font-size: 20px; }
+    .stat-card { padding: 14px; }
+    .card { padding: 16px; }
+}
+
+@media (max-width: 480px) {
+    .bb-board { max-width: 280px; gap: 1px; padding: 4px; }
+    .pieces-grid { gap: 6px; }
+    .piece-option { padding: 5px 8px; font-size: 10px; }
+    .main-content { padding: 8px; padding-top: 56px; }
+    .page-header h1 { font-size: 18px; }
+    .page-header p { font-size: 12px; }
+    .btn { padding: 10px 16px; font-size: 13px; }
+    .stat-card { padding: 10px; gap: 10px; }
+    .stat-info h3 { font-size: 18px; }
 }
 
 /* Checkbox & Toggle */
